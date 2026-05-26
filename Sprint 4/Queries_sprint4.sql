@@ -1,4 +1,11 @@
 -- NIVEL 1
+-- Ejercicio 1: El Country Manager de Alemania necesita revisar urgentemente las transacciones del día 12 de marzo de 2022 .
+
+-- » 1. Escribe la consulta que une (JOIN) transacciones y compañías.
+-- » 2. Filtra los resultados por la fecha indicada y el país "Germany".
+-- » 3. Sin ejecutar la consulta, realiza un "Dry Run" (auditoría de costes).
+-- Observación: Fíjate en que BigQuery lee casi toda la tabla a pesar de pedir sólo un día (Full Table Scan)
+
 SELECT
   tc.*,
   cc.company_name,
@@ -6,7 +13,7 @@ SELECT
 FROM `sprint3_silver.transactions_clean` AS tc
 JOIN `sprint3_silver.companies_clean` AS cc
   ON tc.business_id = cc.company_id
-WHERE EXTRACT(DATE FROM tc.timestamp) = DATE '2022-03-12';
+WHERE DATE(tc.timestamp) = '2022-03-12' AND cc.country = 'Germany';
 
 
 
@@ -36,12 +43,14 @@ FROM `sprint3_silver.transactions_recent`;
 
 SELECT *
 FROM `sprint3_silver.transactions_recent` 
-WHERE DATE(timestamp) <= CURRENT_DATE() - INTERVAL 1 MONTH;
+WHERE timestamp >= TIMESTAMP_SUB (CURRENT_TIMESTAMP(), INTERVAL 30 DAY);
+
 
 
 SELECT *
 FROM `sprint3_gold.fact_transactions_optimized` 
-WHERE DATE(timestamp) <= CURRENT_DATE() - INTERVAL 1 MONTH;
+WHERE timestamp >= TIMESTAMP_SUB (CURRENT_TIMESTAMP(), INTERVAL 30 DAY);
+
 
 
 
@@ -50,14 +59,35 @@ WHERE DATE(timestamp) <= CURRENT_DATE() - INTERVAL 1 MONTH;
 CREATE OR REPLACE MATERIALIZED VIEW `sprint3_gold.mv_daily_sales` AS -- vista para contar las ventas diarias
 SELECT
   DATE(timestamp) AS sales_date,
-  COUNT(*) AS ventas_totales_dia
+  SUM(amount) AS ventas_totales_dia
 FROM `sprint3_gold.fact_transactions_optimized`
+WHERE declined = '0'
 GROUP BY sales_date;
 
-SELECT *
+-- consultar vista:
+
+SELECT
+  sales_date,
+  ROUND(ventas_totales_dia,2)
 FROM `sprint3_gold.mv_daily_sales`;
 
+
+
 -- NIVEL 2
+
+-- Ejercicio 1:
+-- Marketing quiere analizar el comportamiento de nuestros mejores clientes para diseñar la estrategia del próximo año. Definimos "VIP" como aquellos con un gasto acumulado superior a 500 €. Necesitan un informe que, para cada VIP, muestre su nombre, contacto y su patrón de compra: cuántas veces ha comprado, cuánto gasta de media y cuál fue su compra récord.
+
+-- 1. Crea una CTE llamada VIP_Stats que agrupe por usuario y calcule :
+-- El Gasto Total (SUM).
+-- La Cantidad de Transacciones (COUNT).
+-- El Ticket Medio (AVG), redondeado a 2 decimales.
+-- La Compra Máxima (MAX).
+-- Filtro: Mantiene sólo aquellos cuyo Gasto Total sea > 500.
+-- Crea la CTE con users_combined para obtener los datos personales.
+-- Requisitos de Salida:
+-- Columnas: user_id, nombre_completo, email, num_compras, ticket_medio, max_compra, total_gastado.
+-- Ordenado por total_gastado descendente.
 
 WITH VIP_Stats AS (
   SELECT
@@ -66,29 +96,22 @@ WITH VIP_Stats AS (
     COUNT(transaction_id) AS num_compras,
     ROUND(AVG(amount), 2) AS ticket_medio,
     MAX(amount) AS max_compra
-  FROM `sprint3-analytics-estefaniat.sprint3_silver.transactions_clean` -- podría tomarlo de la tabla optimizada para ahorrar MB!!
+  FROM `sprint3-analytics-estefaniat.sprint3_gold.fact_transactions_optimized` -- lo tomo de la tabla optimizada para ahorrar MB!!
   GROUP BY user_id
   HAVING total_gastado > 500
-),
-
-users AS (
-  SELECT
-    user_id,
-    CONCAT(name, ' ', surname) AS nombre_completo,
-    email
-  FROM `sprint3-analytics-estefaniat.sprint3_silver.users_combined`
 )
 
 SELECT
   v.user_id,
-  u.nombre_completo,
+  u.name,
+  u.surname,
   u.email,
   v.num_compras,
   v.ticket_medio,
   v.max_compra,
   v.total_gastado
 FROM VIP_Stats AS v
-JOIN users AS u
+JOIN sprint3_silver.users_combined AS u
   ON v.user_id = u.user_id
 ORDER BY v.total_gastado DESC;
 
@@ -189,6 +212,7 @@ JOIN first_three_stats AS s
 JOIN users AS u
   ON t.user_id = u.user_id
 ORDER BY t.fecha_tercera_compra;
+
 
 
 -- NIVEL 3
